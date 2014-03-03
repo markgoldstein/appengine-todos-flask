@@ -18,7 +18,7 @@
 
 This is a sample Flask JSON backend for a todo app.
 
-It support the following methods:
+It supports the following methods:
 - Create a new todo
 POST /todos
 > {"text": "do this"}
