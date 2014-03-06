@@ -16,36 +16,18 @@
 #
 """Todos storage.
 
-We represent a todo list in the datastore using two entities:
 
-- Todo is a single item on a todo list. It has three properties:
 
-    - `text`: a string up to 500 characters long that describes the todo task.
-      The default is an empty string. This property is not indexed.
-    - `done`: a boolean property indicating whether a task has been "checked
-      off." It defaults to `False`. This property is indexed.
-    - `created`: a datetime property set to the current time when the entity is
-      created. This property is indexed.
-
-- TodoList has no properties. Its key (a string) will be the name of a
-  todo list.
-
-All the Todo entities in a todo list have the same TodoList as their parent.
-This makes the items in the list an `entity group.`
-
-An entity group has strong consistency. You can perform consistent queries and
-transactional updates on an entity group. However, the rate at which you can
-write to the same entity group is limited to one write per second.
-
-This module defines two subclasses of `ndb.Model` that correspond to the
-Todo and TodoList datastore entities.
+This module defines two subclasses of `ndb.Model`:
+- Todo
+- TodoList
 
 The operations for managing a todo list are:
-- TodoList.get_or_create # fetch an existing TodoList, or create a new one.
-- TodoList.add_todo      # add a new Todo item to the list.
-- TodoList.update_todo   # update an existing Todo item in the list.
-- TodoList.get_all_todos # get all Todo items in the list.
-- TodoList.clear_todos # delete all the Todo items in the list where done==True.
+- TodoList.get_or_create # fetch an existing list, or create a new one.
+- TodoList.add_todo      # add a new item to the list.
+- TodoList.update_todo   # update an existing item in the list.
+- TodoList.get_all_todos # get all the items in the list.
+- TodoList.clear_todos # delete all the items in the list that have been "done".
 """
 
 from google.appengine.ext import ndb
@@ -54,7 +36,14 @@ from google.appengine.ext import ndb
 class Todo(ndb.Model):
     """Todo item model.
 
-    Model for the Todo entity
+    Todo is a single item on a todo list. It has three properties:
+
+    - `text`: a string up to 500 characters long that describes the todo task.
+      The default is an empty string. This property is not indexed.
+    - `done`: a boolean property indicating whether a task has been "checked
+      off." It defaults to `False`. This property is indexed.
+    - `created`: a datetime property set to the current time when the entity is
+      created. This property is indexed.
     """
 
     text = ndb.StringProperty(default='', indexed=False)
@@ -65,7 +54,15 @@ class Todo(ndb.Model):
 class TodoList(ndb.Model):
     """Todo list model.
 
-    Model for the TodoList entity
+    TodoList has no properties.
+    
+    A todo list is a collection of Todo items that all have the same TodoList as
+    their parent. The key of the TodoList (a string) is the name of the list.
+    
+    The items in a todo list are an `entity group.` An entity group has strong
+    consistency. You can perform consistent queries and transactional updates on
+    an entity group. However, the rate at which you can write to the same entity
+    group is limited to one write per second.
     """
 
     @classmethod
@@ -77,7 +74,7 @@ class TodoList(ndb.Model):
         if it exists.
         
         If there is no such TodoList, creates and returns a new TodoList with
-        its entity key set to `ndb.Key('TodoList', name)`. An insert mutation
+        its key set to `ndb.Key('TodoList', name)`. An insert mutation
         is performed to add the new TodoList to the datastore.
         """
         return TodoList.get_or_insert(name)
@@ -86,14 +83,14 @@ class TodoList(ndb.Model):
         """Add a new Todo entity in the TodoList.
 
         Constructs a Todo model with the `text` property set to the given
-        string, and its parent set to the TodoList. Adds a new entity to the
-        datastore and returns the Todo model.
+        string, and its parent set to the TodoList. Adds a new item to the
+        list and returns its Todo model.
 
         The `put()` method performs an atomic insert mutation that inserts
         a new Todo entity into the datastore and auto-assigns it a numeric ID.
 
         Because all the Todos in the same TodoList belong to the same entity
-        group, there is a limit of one add per second.
+        group, there is a limit of one add per second to the TodoList.
         """
 
         todo = Todo(text=text_string, parent=self.key)
@@ -105,13 +102,13 @@ class TodoList(ndb.Model):
 
         Constructs a Todo model with a given numeric ID, `text`, and `done`
         properties. Sets its parent to the TodoList. Updates the corresponding
-        entity in the datastore and returns the Todo model.
+        item in the list and returns the Todo model.
 
         The `put()` method performs an atomic update mutation to the datastore
         on the existing entity.
 
         Because all the Todos in the same TodoList belong to the same entity
-        group, there is a limit of one update per second.
+        group, there is a limit of one update per second to the TodoList.
         """
 
         todo = Todo(id=id, text=text_string, done=done, parent=self.key)
@@ -121,9 +118,9 @@ class TodoList(ndb.Model):
     def get_all_todos(self):
         """Fetch all the Todo items in the TodoList ordered by creation date.
 
-        Because the query has an ancestor filter that specifies
-        the entity group containing all the Todos in the TodoList,
-        it returns a strongly consistent result.
+        Because the query has an ancestor filter that specifies an entity group
+        (all the Todos in the TodoList), it returns a strongly consistent
+        result.
         """
 
         return Todo.query(ancestor=self.key).order(Todo.created).fetch()
@@ -133,19 +130,20 @@ class TodoList(ndb.Model):
         """Delete all the completed Todo items, those with done==True.
 
         The decorator `@ndb.transactional` creates a transaction that begins
-        when the method is invoked, and commits when the method exits with no
+        when the method is invoked, and commits only if the method exits with no
         exceptions. The transaction involves two operations:
         
-        - Fetch the keys of all the Todo entities whose `done` property is `True`.
+        - Fetch the keys of all the Todo entities whose `done` property is
+          `True`.
         - Batch delete the entities with those keys.
 
         Because the operations are performed within a transaction, and the
         TodoList that's involved is an entity group, it is guaranteed that:
         - The query has a strongly consistent view of the TodoList at the
           beginning of the transaction.
-        - As long no other updates to the same TodoList occur while this method
-          is running, All write operations will succeed. Otherwise, all write
-          operations will fail and any partial changes will be rolled back.
+        - All delete operations will succeed, as long as no other updates to the
+          same TodoList occur while this method is running. Otherwise, any
+          partial changes will be rolled back and the transaction fails.
         """
 
         keys = Todo.query(Todo.done == True,
